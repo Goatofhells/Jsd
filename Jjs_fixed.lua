@@ -245,10 +245,17 @@ if #v59 ~= 0 then
             vu88 = lockOnEnabled
             if lockOnEnabled then
                 vu87 = vu100()
+                if lockOnMethod == "Camera" then
+                    workspace.CurrentCamera.CameraType = Enum.CameraType.Track
+                end
             else
                 vu87 = nil
-                if vu84.Character and vu84.Character:FindFirstChildOfClass("Humanoid") then
-                    vu84.Character:FindFirstChildOfClass("Humanoid").AutoRotate = true
+                if lockOnMethod == "Camera" then
+                    workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+                elseif lockOnMethod == "Character" then
+                    if vu84.Character and vu84.Character:FindFirstChildOfClass("Humanoid") then
+                        vu84.Character:FindFirstChildOfClass("Humanoid").AutoRotate = true
+                    end
                 end
             end
         end
@@ -258,7 +265,8 @@ if #v59 ~= 0 then
                     local cam = workspace.CurrentCamera
                     local targetPos = vu87.Character.HumanoidRootPart.Position
                     local camPos = cam.CFrame.Position
-                    cam.CFrame = CFrame.new(camPos, targetPos)
+                    local targetCFrame = CFrame.new(camPos, targetPos)
+                    cam.CFrame = cam.CFrame:Lerp(targetCFrame, smoothness)
                 end
             else
                 local v101 = vu84.Character
@@ -1178,109 +1186,126 @@ if #v59 ~= 0 then
         end
     })
 
-    local charaTimingMode = "Off"
+    local charaTimingEnabled = false
+    local charaTimingMode = "Legit 1"
     local charaFightUI = game:GetService("ReplicatedStorage").Effects.Characters.Chara.Fight_UI
+    local origFightUIFunc = require(charaFightUI)
 
-    local function hookCharaTiming()
-        local qteMod = charaFightUI:FindFirstChild("QTE")
-        if not qteMod then return end
-        local realMod = require(qteMod)
-        if not realMod then return end
-        if realMod._originalReturn then return end
-        realMod._originalReturn = realMod
-        local origFunc = rawget(realMod, "__index") or realMod
-        setreadonly(realMod, false)
-        local origNew = realMod.new or realMod
-        if type(origNew) ~= "function" then
-            origNew = origNew.new
+    local function patchedFightUIFunc(self, p_u_11, p_u_12, p13, p14)
+        if not charaTimingEnabled or charaTimingMode ~= "Blatant" then
+            return origFightUIFunc(self, p_u_11, p_u_12, p13, p14)
         end
+
+        local patchedConfig = type(p14) == "table" and table.clone(p14) or {}
+        patchedConfig.MinRange = 0
+        patchedConfig.MaxRange = math.huge
+        local origRemoteFire = patchedConfig.RemoteFire
+        patchedConfig.RemoteFire = function(result)
+            if origRemoteFire then origRemoteFire(true)
+            else p_u_11:FireServer(true) end
+        end
+        patchedConfig.AttackTime = 0.001
+        return origFightUIFunc(self, p_u_11, p_u_12, p13, patchedConfig)
     end
 
-    local function autoFireChara(remote, resultBool)
-        if remote then
-            remote:FireServer(resultBool)
-        end
-    end
-
-    local charaQTEHooked = false
-    local function hookCharaQTE()
-        if charaQTEHooked then return end
-        for _, obj in pairs(getgc(true)) do
-            if type(obj) == "table" then
-                pcall(function()
-                    if rawget(obj, "RemoteFire") or (rawget(obj, "AttackTime") and rawget(obj, "MinRange")) then
-                        if not rawget(obj, "_charaTiming_hooked") then
-                            obj._charaTiming_hooked = true
-                            local origRemoteFire = obj.RemoteFire
-                            obj.RemoteFire = function(self2, result)
-                                if charaTimingMode == "Blatant" then
-                                    return (origRemoteFire or function() end)(true)
-                                else
-                                    return (origRemoteFire or function() end)(result)
-                                end
-                            end
+    local hookedCount = 0
+    for _, fn in pairs(getgc(true)) do
+        if type(fn) == "function" then
+            pcall(function()
+                local callerEnv = getfenv and getfenv(fn)
+                if callerEnv then
+                    for k, v in pairs(callerEnv) do
+                        if v == origFightUIFunc then
+                            setreadonly(callerEnv, false)
+                            callerEnv[k] = patchedFightUIFunc
+                            hookedCount = hookedCount + 1
                         end
                     end
-                    if rawget(obj, "InRange") and rawget(obj, "MinRange") == nil and rawget(obj, "_OriginalInRange") == nil then
-                        if not rawget(obj, "_charaTiming_hooked2") then
-                            obj._charaTiming_hooked2 = true
-                        end
-                    end
-                end)
-            end
-        end
-    end
-
-    local charaMiniHooked = false
-    task.spawn(function()
-        task.wait(3)
-        local fightUIScript = charaFightUI:FindFirstChildWhichIsA("LocalScript") or charaFightUI:FindFirstChildWhichIsA("ModuleScript")
-        for _, obj in pairs(getgc(true)) do
-            if type(obj) == "table" then
-                pcall(function()
-                    if rawget(obj, "v_u_26") or (rawget(obj, "v_u_18") and rawget(obj, "v_u_19") and rawget(obj, "v_u_20")) then
-                        if not rawget(obj, "_charaHook") then
-                            obj._charaHook = true
-                            charaMiniHooked = true
-                        end
-                    end
-                end)
-            end
-        end
-    end)
-
-    local charaTimingConnection = v48.Heartbeat:Connect(function()
-        if charaTimingMode ~= "Off" then
-            for _, obj in pairs(getgc(true)) do
-                if type(obj) == "table" then
-                    pcall(function()
-                        if rawget(obj, "v_u_18") ~= nil and rawget(obj, "v_u_19") ~= nil and rawget(obj, "v_u_20") ~= nil and rawget(obj, "v_u_22") ~= nil then
-                            if not rawget(obj, "_autoFired") then
-                                obj._autoFired = true
-                                if rawget(obj, "v_u_26") and type(obj.v_u_26) == "function" then
-                                    if charaTimingMode == "Blatant" then
-                                        local orig18 = obj.v_u_18
-                                        local orig19 = obj.v_u_19
-                                        obj.v_u_18 = 0
-                                        obj.v_u_19 = math.huge
-                                        task.spawn(obj.v_u_26)
-                                        obj.v_u_18 = orig18
-                                        obj.v_u_19 = orig19
-                                    end
-                                end
-                            end
-                        end
-                    end)
                 end
-            end
+            end)
         end
+        if type(fn) == "table" then
+            pcall(function()
+                for k, v in pairs(fn) do
+                    if v == origFightUIFunc then
+                        setreadonly(fn, false)
+                        fn[k] = patchedFightUIFunc
+                        hookedCount = hookedCount + 1
+                    end
+                end
+            end)
+        end
+    end
+    local playerGui = game:GetService("Players").LocalPlayer.PlayerGui
+    playerGui.ChildAdded:Connect(function(child)
+        if child.Name ~= "UI" then return end
+        if not charaTimingEnabled then return end
+
+        task.spawn(function()
+            local bar = child:WaitForChild("Bar", 5)
+            if not bar then return end
+            local hitbox = bar:WaitForChild("Hitbox", 5)
+            if not hitbox then return end
+            local line = bar:WaitForChild("Line", 5)
+            if not line then return end
+
+            local function clickHitbox()
+                firesignal(hitbox.MouseButton1Click)
+            end
+
+            if charaTimingMode == "Legit 1" then
+                local tweenService = game:GetService("TweenService")
+                local origAttackTime = 0.85
+                local mn = origAttackTime / 2.2
+                local mx = origAttackTime / 1.8
+                local hitTime = mn + math.random() * (mx - mn)
+                tweenService:Create(line, TweenInfo.new(hitTime * 0.4, Enum.EasingStyle.Linear), {
+                    Position = UDim2.fromScale(1, 0.489)
+                }):Play()
+                task.delay(hitTime * 0.4, function()
+                    if child and child.Parent then
+                        clickHitbox()
+                    end
+                end)
+
+            elseif charaTimingMode == "Legit 2" then
+                local origAttackTime = 0.85
+                local mn = origAttackTime / 2.2
+                local mx = origAttackTime / 1.8
+                local startTick = tick()
+                local hitTime = mn + math.random() * (mx - mn)
+
+                local connection
+                connection = game:GetService("RunService").Heartbeat:Connect(function()
+                    if not child or not child.Parent then
+                        connection:Disconnect()
+                        return
+                    end
+                    if tick() - startTick >= hitTime then
+                        connection:Disconnect()
+                        if child and child.Parent then
+                            clickHitbox()
+                        end
+                    end
+                end)
+            end
+        end)
     end)
+
+    v395:Toggle({
+        Title = "Chara 4th timing",
+        Desc = "",
+        Default = false,
+        Callback = function(p)
+            charaTimingEnabled = p
+        end
+    })
 
     v395:Dropdown({
-        Title = "Chara 4th timing",
-        Desc = "blatant = always win regardless of timing",
-        Values = {"Off", "Blatant"},
-        Value = "Off",
+        Title = "Chara 4th mode",
+        Desc = "Legit 1 = speeds up bar hits in window | Legit 2 = waits and clicks Hitbox at right time | Blatant = hook forces instant win",
+        Values = {"Legit 1", "Legit 2", "Blatant"},
+        Value = "Legit 1",
         Multi = false,
         Callback = function(p)
             charaTimingMode = p
@@ -1424,11 +1449,6 @@ if #v59 ~= 0 then
         Multi = false,
         Callback = function(p)
             lockOnMethod = p
-            if p == "Camera" then
-                if vu84.Character and vu84.Character:FindFirstChildOfClass("Humanoid") then
-                    vu84.Character:FindFirstChildOfClass("Humanoid").AutoRotate = true
-                end
-            end
         end
     })
 
